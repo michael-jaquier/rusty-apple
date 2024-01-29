@@ -384,8 +384,6 @@ mod tests {
         let graph = CSRGraph::from((&edge_list, 4));
         let graph = UndirectedCSRGraph::new(graph, NodeValues::new(vec![1, 2, 3, 4]));
 
-        let graph_values = graph.node_value(0);
-
         assert_eq!(graph.node_count(), 4);
         assert_eq!(graph.edge_count(), 6);
 
