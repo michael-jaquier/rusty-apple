@@ -1,13 +1,12 @@
 #![deny(missing_docs)]
+//! # Storage
 
-//! # Graphs
-
-/// This is the crate-level documentation.
-/// This crate provides functionality for working with graphs.
-pub mod graph;
-
-/// Trait representing a node value in a graph.
-pub trait NodeValue<NI: graph::Idx, NV> {
-    /// Get the value of a node.
-    fn node_value(&self, node: NI) -> &NV;
+mod prelude {
+    pub use bevy::prelude::*;
+    pub use bevy_xpbd_2d::prelude::*;
+    pub use leafwing_input_manager::prelude::*;
 }
+
+pub mod assets;
+pub mod player;
+pub mod weapon;
