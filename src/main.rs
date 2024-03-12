@@ -1,10 +1,11 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 use bevy::{prelude::*, window::WindowResolution};
+use bevy_egui::EguiPlugin;
 use bevy_xpbd_2d::prelude::PhysicsPlugins;
-use rusty_apple::{assets, player, weapon};
-
-const ARENA_WIDTH: f32 = 1280.0;
-const ARENA_HEIGHT: f32 = 800.0;
+use rusty_apple::{
+    arena::{ARENA_HEIGHT, ARENA_WIDTH},
+    assets, mob, player, ui, weapon,
+};
 
 fn main() {
     App::new()
@@ -12,16 +13,20 @@ fn main() {
         .add_plugins(PhysicsPlugins::default())
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "Kataster".to_string(),
+                title: "Rusty-Apple".to_string(),
                 resolution: WindowResolution::new(ARENA_WIDTH, ARENA_HEIGHT),
                 ..default()
             }),
             ..default()
         }))
+        .add_plugins(EguiPlugin)
         .add_systems(Update, bevy::window::close_on_esc)
         .add_plugins(assets::AssetsPlugin)
         .add_plugins(player::PlayerPlugin)
         .add_plugins(weapon::WeaponPlugin)
+        .add_plugins(mob::MobPlugin)
+        .add_plugins(rusty_apple::collision::CollisionPlugin)
+        .add_plugins(ui::UiPlugin)
         .add_systems(Startup, setup_camera)
         .run();
 }
