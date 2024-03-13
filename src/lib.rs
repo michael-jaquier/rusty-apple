@@ -11,7 +11,6 @@ pub mod arena;
 pub mod assets;
 pub mod collision;
 pub mod mob;
-pub mod player;
 pub mod towers;
 pub mod ui;
 pub mod weapon;

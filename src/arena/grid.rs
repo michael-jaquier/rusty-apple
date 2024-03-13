@@ -4,9 +4,9 @@ use bevy::{input::mouse, prelude::*, sprite::Anchor};
 use bevy_xpbd_2d::parry::na::ComplexField;
 use leafwing_input_manager::user_input::InputKind;
 
-use crate::weapon::WeaponTypes;
+use crate::{towers::TowerTypes, weapon::WeaponTypes};
 
-use super::{ARENA_HEIGHT, ARENA_WIDTH};
+use super::{ARENA_HEIGHT, ARENA_WIDTH, GRID_SQUARE_SIZE};
 /// The grid plugin.
 pub struct GridPlugin;
 
@@ -24,8 +24,9 @@ pub(crate) struct MouseClickEvent {
 #[derive(Debug, Event)]
 pub(crate) enum GridClickEvent {
     Highlight(Transform),
-    Upgrade(WeaponTypes, Transform),
-    Build(WeaponTypes, Transform),
+    Upgrade(TowerTypes, Transform),
+    Build(TowerTypes, Transform),
+    DeHighlight(Transform),
 }
 
 #[derive(Debug, Default, Resource)]
@@ -40,6 +41,7 @@ impl Plugin for GridPlugin {
             .add_systems(Update, track_mouse_position_system)
             .add_systems(Update, mouse_clicked)
             .add_systems(Update, highight)
+            .add_systems(Update, dehighlight)
             .add_systems(Startup, setup);
     }
 }
@@ -60,7 +62,7 @@ fn mouse_clicked(
 ) {
     for b in mouse_button_input.get_just_pressed() {
         let position = mouse_position.position;
-        let square_size = 50.0; // Size of each square
+        let square_size = GRID_SQUARE_SIZE; // Size of each square
         let x = (position.x / square_size).floor() * square_size + square_size / 2.0;
         let y = ARENA_HEIGHT - (position.y / square_size).floor() * square_size - square_size / 2.0;
         let transform = Transform::from_xyz(x - ARENA_WIDTH / 2.0, y - ARENA_HEIGHT / 2.0, 0.0);
@@ -136,6 +138,27 @@ fn highight(
                     })
                     .id();
                 highlighted_spot.0 = Some((entity, *transform));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn dehighlight(
+    mut commands: Commands,
+    mut grid_click_events: EventReader<GridClickEvent>,
+    mut highlighted_spot: ResMut<HighlightedSpot>,
+) {
+    for event in grid_click_events.read() {
+        match event {
+            GridClickEvent::DeHighlight(_transform) => {
+                if let Some(entity) = highlighted_spot.0 {
+                    let maybe_entity = commands.get_entity(entity.0);
+                    if let Some(mut entity) = maybe_entity {
+                        entity.despawn();
+                    }
+                }
+                highlighted_spot.0 = None;
             }
             _ => {}
         }

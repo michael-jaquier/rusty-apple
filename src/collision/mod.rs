@@ -12,7 +12,6 @@ use crate::{
         enemy::{self, EnemyComponent, EnemyUnit},
         MobDespawnEvent,
     },
-    player::PlayerUpdateEvent,
     prelude::*,
     weapon::{DespawnProjectileEvent, ProjectileData},
 };
@@ -71,7 +70,6 @@ fn read_projectile_to_enemy_collision_event(
     mut collision_events: EventReader<CollisionTypes>,
     mut enemy_despawn_events: EventWriter<MobDespawnEvent>,
     mut projectile_despawn_events: EventWriter<DespawnProjectileEvent>,
-    mut player_update_events: EventWriter<PlayerUpdateEvent>,
 ) {
     for event in collision_events.read() {
         match event {
@@ -94,9 +92,6 @@ fn read_projectile_to_enemy_collision_event(
                                 enemy_entity: entity,
                                 spawner_id: unit.spwawner_id,
                             });
-
-                            player_update_events
-                                .send(PlayerUpdateEvent::add_points(unit.mob_type.points()));
                         } else {
                             unit.health = unit.health.saturating_sub(projectile_data.damage);
                         }

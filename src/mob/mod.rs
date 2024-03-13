@@ -10,7 +10,6 @@ use rand::Rng;
 use crate::{
     arena::{ARENA_HEIGHT, ARENA_WIDTH},
     assets::SpriteAssets,
-    player::PlayerComponent,
     prelude::*,
 };
 
@@ -101,7 +100,6 @@ impl Plugin for MobPlugin {
 
 fn mob_spawn_system(
     mut event: EventWriter<MobSpawnEvent>,
-    player_query: Query<&Transform, With<PlayerComponent>>,
     mut mob_query: Query<&mut EnemyComponent>,
     time: Res<Time>,
 ) {
@@ -109,32 +107,14 @@ fn mob_spawn_system(
         if enemy.spawner.timer.tick(time.delta()).just_finished()
             && enemy.spawner.current_count < enemy.spawner.max_count
         {
-            let p = player_query.get_single();
-            if p.is_ok() {
-                let player_position = p.unwrap().translation.truncate();
-                // Spawn enemy a minimum of 200 pixels away from the player
-                // But ensure it remains in the Arena
-
-                let x_rng = (player_position.x + rand::thread_rng().gen_range(774..776) as f32)
-                    % ARENA_WIDTH as f32;
-                let y_rng = (player_position.y + rand::thread_rng().gen_range(0..3) as f32)
-                    % ARENA_WIDTH as f32;
-                let position = Position::from_xy(x_rng, y_rng);
-                event.send(MobSpawnEvent {
-                    mob_type: enemy.mob_type,
-                    position: position,
-                    spawner_id: enemy.spawner.spawner_id,
-                });
-            } else {
-                event.send(MobSpawnEvent {
-                    mob_type: enemy.mob_type,
-                    position: enemy.spawner.spawn_position,
-                    spawner_id: enemy.spawner.spawner_id,
-                });
-            }
-
-            enemy.spawner.current_count += 1;
+            event.send(MobSpawnEvent {
+                mob_type: enemy.mob_type,
+                position: enemy.spawner.spawn_position,
+                spawner_id: enemy.spawner.spawner_id,
+            });
         }
+
+        enemy.spawner.current_count += 1;
     }
 }
 
@@ -190,7 +170,7 @@ fn mob_despawn_system(
                     enemy.spawner.current_count = enemy.spawner.current_count.saturating_sub(1);
                 }
             }
-            
+
             entity.despawn()
         }
     }

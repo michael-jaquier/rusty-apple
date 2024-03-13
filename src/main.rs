@@ -4,7 +4,7 @@ use bevy_egui::EguiPlugin;
 use bevy_xpbd_2d::prelude::PhysicsPlugins;
 use rusty_apple::{
     arena::{self, ARENA_HEIGHT, ARENA_WIDTH},
-    assets, mob, player, towers, ui, weapon,
+    assets, mob, towers, ui, weapon,
 };
 
 fn main() {
@@ -23,10 +23,7 @@ fn main() {
         .add_systems(Update, bevy::window::close_on_esc)
         .add_plugins(arena::GridPlugin)
         .add_plugins(assets::AssetsPlugin)
-        .add_plugins(player::PlayerPlugin)
-        .add_plugins(weapon::WeaponPlugin)
         .add_plugins(mob::MobPlugin)
-        .add_plugins(rusty_apple::collision::CollisionPlugin)
         .add_plugins(ui::UiPlugin)
         .add_plugins(towers::TowerPlugin)
         .add_systems(Startup, setup_camera)
