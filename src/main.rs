@@ -3,7 +3,7 @@ use bevy::{prelude::*, window::WindowResolution};
 use bevy_egui::EguiPlugin;
 use bevy_xpbd_2d::prelude::PhysicsPlugins;
 use rusty_apple::{
-    arena::{self, ARENA_HEIGHT, ARENA_WIDTH},
+    arena::{self, PathFindingPlugin, ARENA_HEIGHT, ARENA_WIDTH},
     assets, mob, towers, ui, weapon,
 };
 
@@ -26,6 +26,7 @@ fn main() {
         .add_plugins(mob::MobPlugin)
         .add_plugins(ui::UiPlugin)
         .add_plugins(towers::TowerPlugin)
+        .add_plugins(PathFindingPlugin)
         .add_systems(Startup, setup_camera)
         .run();
 }

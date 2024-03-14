@@ -44,6 +44,7 @@ fn mouse_clicked(
                 continue;
             }
             show_window.0 = true;
+            println!("Mouse clicked: {:?}", event.position.translation);
             grid_click_event.send(GridClickEvent::Highlight(event.position));
         }
     }
