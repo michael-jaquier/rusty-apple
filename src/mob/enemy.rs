@@ -16,6 +16,7 @@ impl Enemies {
             mob_type: *self,
             spwawner_id: id,
             health: 1,
+            move_timer: Timer::from_seconds(0.5, TimerMode::Once),
         };
 
         match self {
@@ -25,11 +26,6 @@ impl Enemies {
         }
 
         base
-    }
-    pub(crate) fn points(&self) -> usize {
-        match self {
-            Enemies::Block => 1,
-        }
     }
 }
 
@@ -47,7 +43,7 @@ impl From<Enemies> for EnemyComponent {
 impl From<Enemies> for MobSpawnerData {
     fn from(value: Enemies) -> Self {
         let (period, count) = match value {
-            Enemies::Block => (5.0, 1),
+            Enemies::Block => (5.0, 2),
         };
 
         MobSpawnerData {
@@ -82,9 +78,10 @@ pub(crate) struct EnemyComponent {
     pub(crate) spawner: MobSpawner,
 }
 
-#[derive(Debug, Component, Copy, Clone)]
+#[derive(Debug, Component, Clone)]
 pub(crate) struct EnemyUnit {
     pub(crate) mob_type: Enemies,
     pub(crate) spwawner_id: SpawnId,
     pub(crate) health: usize,
+    pub(crate) move_timer: Timer,
 }

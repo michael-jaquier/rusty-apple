@@ -13,7 +13,10 @@ use leafwing_input_manager::user_input::InputKind;
 
 use crate::{towers::TowerTypes, weapon::WeaponTypes};
 
-use super::{path_finding::Pos, ARENA_HEIGHT, ARENA_WIDTH, GRID_SQUARE_SIZE};
+use super::{
+    path_finding::{PathFindingEvent, Pos},
+    ARENA_HEIGHT, ARENA_WIDTH, GRID_SQUARE_SIZE,
+};
 /// The grid plugin.
 pub struct GridPlugin;
 
@@ -23,6 +26,8 @@ pub(crate) struct GridResource {
     pub(crate) grid_size: usize,
     pub(crate) grid_square_size: f32,
     pub(crate) grid_coords: [(f32, f32); 4],
+    pub(crate) grid_enemy_start: Pos,
+    pub(crate) grid_enemy_end: Pos,
 }
 
 impl GridResource {
@@ -37,6 +42,8 @@ impl GridResource {
             grid_size,
             grid_square_size,
             grid_coords,
+            grid_enemy_start: Pos::new(10, 5),
+            grid_enemy_end: Pos::new(0, 5),
         }
     }
 
@@ -136,11 +143,9 @@ impl GridResource {
 #[derive(Debug, Event)]
 pub(crate) enum GridClickEvent {
     Highlight(Transform, Pos),
-    HighLightPathFinding(Pos),
     Upgrade(TowerTypes, Transform, Pos),
     Build(TowerTypes, Transform, Pos),
     DeHighlight(Transform, Pos),
-    HighlightCurrentPath(Pos, Vec<Pos>),
 }
 
 #[derive(Debug, Default, Resource)]
@@ -223,6 +228,8 @@ fn setup(mut commands: Commands, mut grid: ResMut<GridResource>) {
 
     grid.grid_size = squares as usize;
     grid.grid_square_size = square_size;
+    grid.grid_enemy_end = Pos::new(0, squares as usize / 2);
+    grid.grid_enemy_start = Pos::new(squares as usize - 1, squares as usize / 2);
     grid.set_grid()
 }
 
@@ -231,41 +238,12 @@ fn highight(
     mut grid_click_events: EventReader<GridClickEvent>,
     mut highlighted_spot: ResMut<HighlightedSpot>,
     mut highlighted_paths: ResMut<HighlightedPaths>,
+    mut path_finding_events: EventReader<PathFindingEvent>,
     grid: Res<GridResource>,
 ) {
-    for event in grid_click_events.read() {
+    for event in path_finding_events.read() {
         match event {
-            GridClickEvent::Highlight(transform, pos) => {
-                if let Some(entity) = highlighted_spot.0 {
-                    let maybe_entity = commands.get_entity(entity.0);
-                    if let Some(mut entity) = maybe_entity {
-                        entity.despawn();
-                    }
-                }
-                let grid_square_size = grid.get_grid_square_size();
-                let offset_transform = Transform {
-                    translation: Vec3::new(
-                        transform.translation.x + grid_square_size / 2.0,
-                        transform.translation.y + grid_square_size / 2.0,
-                        transform.translation.z,
-                    ),
-                    ..*transform
-                };
-                let entity = commands
-                    .spawn(SpriteBundle {
-                        sprite: Sprite {
-                            color: Color::RED,
-                            custom_size: Some(Vec2::splat(grid_square_size)),
-                            ..Default::default()
-                        },
-                        transform: offset_transform,
-                        ..Default::default()
-                    })
-                    .id();
-                highlighted_spot.0 = Some((entity, offset_transform, *pos));
-            }
-
-            GridClickEvent::HighlightCurrentPath(head, path) => {
+            PathFindingEvent::HighlightCurrentPath(head, path) => {
                 {
                     for entity in highlighted_paths.0.drain(..) {
                         let maybe_entity = commands.get_entity(entity);
@@ -332,45 +310,48 @@ fn highight(
                     highlighted_paths.0.push(entity);
                 }
             }
+            _ => {}
+        }
+    }
 
-            GridClickEvent::HighLightPathFinding(pos) => {
-                let grid_square_size = grid.get_grid_square_size();
-                let x = pos.x() as f32 * grid_square_size + grid.bottom_left().0;
-                let y = pos.y() as f32 * grid_square_size + grid.bottom_left().1;
-
-                let dot_size = grid_square_size / 10.0; // Size of each dot
-                let num_dots = (grid_square_size / (dot_size * 2.0)).floor() as usize; // Number of dots
-
-                for i in 0..num_dots {
-                    let offset_x = i as f32 * dot_size * 2.0; // Position of the dot
-
-                    let transform = Transform::from_xyz(x + offset_x, y, 0.0);
-
-                    let offset_transform = Transform {
-                        translation: Vec3::new(
-                            transform.translation.x + dot_size / 2.0,
-                            transform.translation.y + grid_square_size / 2.0,
-                            transform.translation.z,
-                        ),
-                        ..transform
-                    };
-                    let entity = commands
-                        .spawn(SpriteBundle {
-                            sprite: Sprite {
-                                color: Color::BISQUE,
-                                custom_size: Some(Vec2::splat(dot_size)),
-                                ..Default::default()
-                            },
-                            transform: offset_transform,
-                            ..Default::default()
-                        })
-                        .id();
+    for event in grid_click_events.read() {
+        match event {
+            GridClickEvent::Highlight(transform, pos) => {
+                if let Some(entity) = highlighted_spot.0 {
+                    let maybe_entity = commands.get_entity(entity.0);
+                    if let Some(mut entity) = maybe_entity {
+                        entity.despawn();
+                    }
                 }
+
+                let grid_square_size = grid.get_grid_square_size();
+                let offset_transform = Transform {
+                    translation: Vec3::new(
+                        transform.translation.x + grid_square_size / 2.0,
+                        transform.translation.y + grid_square_size / 2.0,
+                        transform.translation.z,
+                    ),
+                    ..*transform
+                };
+                let entity = commands
+                    .spawn(SpriteBundle {
+                        sprite: Sprite {
+                            color: Color::RED,
+                            custom_size: Some(Vec2::splat(grid_square_size)),
+                            ..Default::default()
+                        },
+                        transform: offset_transform,
+                        ..Default::default()
+                    })
+                    .id();
+                highlighted_spot.0 = Some((entity, offset_transform, *pos));
             }
+
             _ => {}
         }
     }
 }
+
 fn dehighlight(
     mut commands: Commands,
     mut grid_click_events: EventReader<GridClickEvent>,
