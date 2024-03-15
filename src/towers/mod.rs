@@ -6,6 +6,8 @@ use std::fmt::Formatter;
 use std::time::Duration;
 
 use crate::arena::grid;
+use crate::arena::grid::GridResource;
+use crate::arena::path_finding::Pos;
 use crate::arena::GRID_SQUARE_SIZE;
 use crate::assets;
 use crate::weapon::WeaponComponent;
@@ -26,10 +28,11 @@ fn tower_system(
     mut commands: Commands,
     mut grid_event: EventReader<GridClickEvent>,
     assets: Res<SpriteAssets>,
+    mut grid: ResMut<GridResource>,
 ) {
     for event in grid_event.read() {
         match event {
-            GridClickEvent::Build(weapon, transform) => {
+            GridClickEvent::Build(weapon, transform, pos) => {
                 let image = assets.tower_sprites[weapon].clone();
                 let proj_test: WeaponComponent = WeaponTypes::Laser.into();
                 commands.spawn((
@@ -50,6 +53,8 @@ fn tower_system(
                     },
                     proj_test,
                 ));
+
+                grid.set_occupied(pos, true);
             }
 
             _ => {}
