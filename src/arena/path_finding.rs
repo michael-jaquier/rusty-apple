@@ -18,8 +18,7 @@ pub struct PathFindingPlugin;
 
 impl Plugin for PathFindingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<PathFindingEvent>()
-            .add_systems(Update, path);
+        app.add_event::<PathFindingEvent>();
     }
 }
 

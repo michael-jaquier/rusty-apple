@@ -1,21 +1,12 @@
 //! Grid
 
-use bevy::{
-    input::mouse::{self, MouseButtonInput},
-    prelude::*,
-    reflect::OffsetAccess,
-    render::view::window,
-    sprite::Anchor,
-};
-use bevy_egui::egui::debug_text::print;
-use bevy_xpbd_2d::parry::na::ComplexField;
-use leafwing_input_manager::user_input::InputKind;
+use bevy::prelude::*;
 
-use crate::{towers::TowerTypes, weapon::WeaponTypes};
+use crate::towers::TowerTypes;
 
 use super::{
     path_finding::{PathFindingEvent, Pos},
-    ARENA_HEIGHT, ARENA_WIDTH, GRID_SQUARE_SIZE,
+    ARENA_HEIGHT,
 };
 /// The grid plugin.
 pub struct GridPlugin;
@@ -52,6 +43,7 @@ impl GridResource {
     }
 
     pub(crate) fn set_occupied(&mut self, pos: &Pos, value: bool) {
+        info!("Setting occupied: {:?}", pos);
         self.grid[pos.x()][pos.y()] = value;
     }
 

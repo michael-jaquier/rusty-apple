@@ -17,8 +17,10 @@ use crate::{
         path_finding::Pos,
     },
     towers::TowerTypes,
-    weapon::{WeaponComponent, WeaponTypes, WeaponUpgradeEvent},
+    weapons::weapon::{WeaponComponent, WeaponTypes},
 };
+
+pub(crate) mod level;
 
 /// Ui Plugin
 pub struct UiPlugin;
@@ -33,7 +35,8 @@ impl Plugin for UiPlugin {
             .add_systems(Update, track_mouse_position_system)
             .insert_resource(ShowWindow::default())
             .insert_resource(MousePosition::default())
-            .add_event::<MouseClickEvent>();
+            .add_event::<MouseClickEvent>()
+            .add_plugins(level::LevelPlugin);
     }
 }
 #[derive(Debug, Default, Resource)]
@@ -87,7 +90,6 @@ fn mouse_clicked(
     for event in mouse_button_input.get_just_pressed() {
         if event == &mouse::MouseButton::Left {
             if context.ctx_mut().wants_pointer_input() {
-                println!("Pointer input");
                 continue;
             }
             let translated_mouse_position =
@@ -124,15 +126,18 @@ fn ui_system(
     mut grid_click_event: EventWriter<GridClickEvent>,
     highlighted_spot: ResMut<HighlightedSpot>,
 ) {
-    egui::Window::new("Weapons").show(context.ctx_mut(), |ui| {
+    egui::Window::new("Weapons")
+    .collapsible(false)
+    .movable(false)
+    
+    
+    .show(context.ctx_mut(), |ui| {
         let tower_types = all::<TowerTypes>().collect::<Vec<_>>();
         for tower in tower_types {
             let button_text = format!("Tower {} ", tower);
             let button = egui::Button::new(button_text);
             if ui.add_enabled(true, button).clicked() {
-                println!("Button clicked");
-                if let Some((entity, transform, pos)) = highlighted_spot.0 {
-                    println!("Tower built");
+                if let Some((_entity, transform, pos)) = highlighted_spot.0 {
                     grid_click_event.send(GridClickEvent::Build(tower, transform, pos));
                     grid_click_event.send(GridClickEvent::DeHighlight(transform, pos));
                 }

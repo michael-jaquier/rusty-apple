@@ -3,16 +3,31 @@
 use enum_iterator::Sequence;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::time::Duration;
 
-use crate::arena::grid;
 use crate::arena::grid::GridResource;
-use crate::arena::path_finding::Pos;
 use crate::arena::GRID_SQUARE_SIZE;
-use crate::assets;
-use crate::weapon::WeaponComponent;
-use crate::weapon::WeaponTypes;
+use crate::collision::GameLayer;
+
+use crate::mob::EnemyUnit;
+use crate::weapons::weapon::ProjectileData;
+use crate::weapons::weapon::WeaponComponent;
+use crate::weapons::weapon::WeaponTypes;
+use crate::weapons::weapon::WeaponUpdate;
+use crate::weapons::FireWeaponEvent;
 use crate::{arena::grid::GridClickEvent, assets::SpriteAssets, prelude::*};
+
+#[derive(Debug, Copy, Clone)]
+pub(crate) enum TowerLevelUpReason {
+    Kill,
+    Upgrade,
+}
+#[derive(Debug, Event, Clone, Copy)]
+pub(crate) struct TowerLevelUp {
+    pub(crate) entity: Entity,
+    pub(crate) reason: TowerLevelUpReason,
+}
+
+use fireworks::FireWorksPlugins;
 
 /// Tower plugin.
 pub struct TowerPlugin;
@@ -20,7 +35,10 @@ pub struct TowerPlugin;
 impl Plugin for TowerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, tower_system)
-            .add_systems(Update, tower_fire_system);
+            .add_event::<TowerLevelUp>()
+            .add_systems(Update, tower_fire_system)
+            .add_systems(Update, tower_level_up_on_kill)
+            .add_plugins(FireWorksPlugins);
     }
 }
 
@@ -34,7 +52,12 @@ fn tower_system(
         match event {
             GridClickEvent::Build(weapon, transform, pos) => {
                 let image = assets.tower_sprites[weapon].clone();
-                let proj_test: WeaponComponent = WeaponTypes::Laser.into();
+                let tower_component = TowerComponents {
+                    tower: *weapon,
+                    transform: transform.clone(),
+                };
+                let weapon_component: WeaponComponent = WeaponComponent::from(*weapon);
+
                 commands.spawn((
                     SpriteBundle {
                         sprite: Sprite {
@@ -46,12 +69,9 @@ fn tower_system(
 
                         ..Default::default()
                     },
-                    TowerComponents {
-                        tower: *weapon,
-                        transform: transform.clone(),
-                        reload_timer: Timer::from_seconds(1.0, TimerMode::Once),
-                    },
-                    proj_test,
+                    tower_component,
+                    weapon_component,
+                    CollisionLayers::new(GameLayer::Tower, [GameLayer::Enemy]),
                 ));
 
                 grid.set_occupied(pos, true);
@@ -63,27 +83,65 @@ fn tower_system(
 }
 
 fn tower_fire_system(
-    mut commands: Commands,
     time: Res<Time>,
-    mut tower_query: Query<&mut TowerComponents>,
-    assets: Res<SpriteAssets>,
+    mut tower_query: Query<(Entity, &mut TowerComponents, &mut WeaponComponent)>,
+    enemies_position: Query<&Transform, With<EnemyUnit>>,
+    mut fire_event_writer: EventWriter<FireWeaponEvent>,
 ) {
-    for mut tower in tower_query.iter_mut() {
-        tower.update(time.delta());
-        if tower.fire() {
-            commands.spawn((
-                SpriteBundle {
-                    sprite: assets.weapon_sprites[&WeaponTypes::Laser].clone(),
-                    transform: tower.transform.clone(),
-                    ..Default::default()
-                },
-                LinearVelocity(Vec2::new(300.0, 000.0)),
-                RigidBody::Kinematic,
-                Collider::rectangle(10.0, 10.0),
-                ExternalForce::ZERO,
-                ExternalImpulse::new(Vec2::X),
-                Mass(1.0),
-            ));
+    for (entity, tower, mut weapon) in tower_query.iter_mut() {
+        weapon.update(time.delta());
+        if let Some(mut projectile_data) = weapon.fire() {
+            // Find the nearest enemy
+            let tower_position = tower.transform.translation;
+            let mut nearest_enemy = None;
+            let mut nearest_distance = f32::MAX;
+
+            for enemy_transform in enemies_position.iter() {
+                let enemy_position = enemy_transform.translation;
+                let distance = tower_position.distance(enemy_position);
+
+                if distance < nearest_distance {
+                    nearest_distance = distance;
+                    nearest_enemy = Some(enemy_position);
+                }
+            }
+
+            // Fire at the nearest enemy
+
+            if let Some(nearest_enemy_position) = nearest_enemy {
+                let direction = (nearest_enemy_position - tower_position).normalize();
+                let velocity = (direction * projectile_data.speed_multiplier).truncate(); // Set the speed as needed
+                projectile_data.source_entity = Some(entity);
+
+                fire_event_writer.send(FireWeaponEvent {
+                    weapon_projectile_data: projectile_data,
+                    source_transform: tower.transform.clone(),
+                    velocity: LinearVelocity(velocity),
+                    source_entity: entity,
+                });
+            }
+        }
+    }
+}
+
+fn tower_level_up_on_kill(
+    mut tower_level_up_event: EventReader<TowerLevelUp>,
+    mut tower_query: Query<(Entity, &mut TowerComponents, &mut WeaponComponent)>,
+) {
+    for event in tower_level_up_event.read() {
+        match event {
+            TowerLevelUp {
+                entity,
+                reason: TowerLevelUpReason::Kill,
+            } => {
+                if let Ok((_tower_entity, mut tower, mut weapon)) = tower_query.get_mut(*entity) {
+                    weapon.level_up();
+                    tower.level_up();
+
+                    // Here you can also update the tower and its sprite
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -114,34 +172,120 @@ impl TowerTypes {
     }
 }
 
-#[derive(Debug, Component)]
+#[derive(Debug, Component, Clone, Copy)]
 struct TowerComponents {
     tower: TowerTypes,
     transform: Transform,
-    reload_timer: Timer,
 }
 
 impl TowerComponents {
-    pub(crate) fn fire(&mut self) -> bool {
-        if self.can_fire() {
-            self.reload_timer.reset();
-            true
-        } else {
-            false
+    pub(crate) fn level_up(&mut self) {}
+}
+
+impl From<TowerTypes> for WeaponTypes {
+    fn from(value: TowerTypes) -> Self {
+        match value {
+            TowerTypes::Basic => WeaponTypes::Laser,
+            TowerTypes::Fire => WeaponTypes::Fire,
+            TowerTypes::Ice => WeaponTypes::Ice,
+        }
+    }
+}
+
+impl From<TowerTypes> for ProjectileData {
+    fn from(value: TowerTypes) -> Self {
+        let weapon: WeaponTypes = value.into();
+        weapon.into()
+    }
+}
+
+impl From<TowerTypes> for WeaponComponent {
+    fn from(value: TowerTypes) -> Self {
+        let weapon_type: WeaponTypes = value.into();
+        weapon_type.into()
+    }
+}
+
+pub mod fireworks {
+    //! Fireworks module.
+
+    use super::*;
+
+    /// Fireworks plugin.
+    pub struct FireWorksPlugins;
+
+    impl Plugin for FireWorksPlugins {
+        fn build(&self, app: &mut App) {
+            app.add_systems(Update, spawn_firework_on_level_up)
+                .add_systems(Update, update_fireworks);
         }
     }
 
-    pub(crate) fn can_fire(&self) -> bool {
-        self.reload_timer.finished()
+    // Firework component
+    #[derive(Debug, Component)]
+    struct Firework {
+        lifetime: Timer,
     }
-}
 
-trait TowerUpdate {
-    fn update(&mut self, time: Duration);
-}
+    // System to spawn fireworks
+    fn spawn_firework_on_level_up(
+        mut commands: Commands,
+        mut tower_level_up_event: EventReader<TowerLevelUp>,
+        tower_query: Query<&Transform, With<TowerComponents>>,
+        assets: Res<AssetServer>,
+    ) {
+        for event in tower_level_up_event.read() {
+            match event {
+                TowerLevelUp {
+                    entity,
+                    reason: TowerLevelUpReason::Kill,
+                } => {
+                    if let Ok(transform) = tower_query.get(event.entity) {
+                        // Load the firework texture as an asset
+                        let firework_texture_handle = assets.load("firework.png");
 
-impl TowerUpdate for TowerComponents {
-    fn update(&mut self, time: Duration) {
-        self.reload_timer.tick(time);
+                        info!("Tower level up event spawning fireworks {:?}", event);
+                        commands
+                            .spawn(SpriteBundle {
+                                sprite: Sprite {
+                                    custom_size: Some(Vec2::splat(50.0)),
+                                    ..Default::default()
+                                },
+                                texture: firework_texture_handle,
+                                transform: Transform {
+                                    translation: transform.translation + Vec3::new(0.0, 50.0, 0.0), // Offset the firework above the tower
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            })
+                            .insert(Firework {
+                                lifetime: Timer::from_seconds(2.0, TimerMode::Once),
+                            });
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // System to update fireworks
+    // System to update fireworks
+    fn update_fireworks(
+        time: Res<Time>,
+        mut commands: Commands,
+        mut query: Query<(Entity, &mut Firework, &mut Transform)>,
+    ) {
+        let firework_speed = 50.0; // Adjust this value to change the speed of the firework
+
+        for (entity, mut firework, mut transform) in query.iter_mut() {
+            firework.lifetime.tick(time.delta());
+
+            if firework.lifetime.finished() {
+                commands.entity(entity).despawn();
+            } else {
+                // Move the firework upwards
+                transform.translation.y += firework_speed * time.delta_seconds();
+            }
+        }
     }
 }

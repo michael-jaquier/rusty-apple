@@ -13,4 +13,4 @@ pub mod collision;
 pub mod mob;
 pub mod towers;
 pub mod ui;
-pub mod weapon;
+pub mod weapons;
