@@ -1,20 +1,10 @@
 //! Mobs
 
-use std::sync::atomic::AtomicUsize;
+use std::{collections::HashMap, hash::Hash, sync::atomic::AtomicUsize};
 
-use enum_iterator::{all, Sequence};
+use enum_iterator::Sequence;
 
-use crate::{
-    arena::{
-        grid::GridResource,
-        path_finding::{path_mob_finding, Pos},
-        ARENA_HEIGHT, ARENA_WIDTH,
-    },
-    assets::SpriteAssets,
-    collision::GameLayer,
-    prelude::*,
-    ui::level::MapLevel,
-};
+use crate::{assets::SpriteAssets, prelude::*};
 
 static SPAWNER_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -26,12 +16,48 @@ pub(crate) enum Enemies {
     Block,
 }
 
+impl Enemies {
+    pub(crate) fn damage(&self, map_level: u32) -> u32 {
+        match self {
+            Enemies::Block => (1 + map_level).min(20),
+        }
+    }
+}
+
 fn block_enemy_sprite() -> Sprite {
     Sprite {
-        color: Color::rgb(0.0, 1.0, 0.0),
-        custom_size: Some(Vec2::new(50.0, 50.0)),
+        color: Color::CRIMSON,
+        custom_size: Some(Vec2::new(16.0, 16.0)),
         ..Default::default()
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct StatusEffect {
+    pub(crate) effect_type: EffectType,
+    pub(crate) timer: Timer,
+    pub(crate) potency: u32,
+}
+
+impl Hash for StatusEffect {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.effect_type.hash(state);
+    }
+}
+
+impl PartialEq for StatusEffect {
+    fn eq(&self, other: &Self) -> bool {
+        self.effect_type == other.effect_type
+    }
+}
+
+impl Eq for StatusEffect {}
+
+#[derive(Debug, Clone, PartialEq, Hash, Eq, Copy)]
+pub(crate) enum EffectType {
+    None,
+    Slow,
+    // add other effect types here
 }
 
 /// The enemy component.
@@ -46,8 +72,22 @@ pub(crate) struct EnemyUnit {
     pub(crate) mob_type: Enemies,
     pub(crate) spwawner_id: SpawnId,
     pub(crate) health: usize,
-    pub(crate) move_timer: Timer,
+    pub(crate) next_position: Option<Vec3>,
+    pub(crate) move_speed: f32,
+    pub(crate) experience: usize,
+    pub(crate) bricks: usize,
+    pub(crate) status_effects: HashMap<EffectType, StatusEffect>,
 }
+
+impl EnemyUnit {
+    pub(crate) fn insert_status(&mut self, effect: StatusEffect) {
+        if effect.effect_type == EffectType::None {
+            return;
+        }
+        self.status_effects.insert(effect.effect_type, effect);
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct MobSpawnerData {
     pub(crate) mob_type: Enemies,
@@ -63,8 +103,8 @@ pub(crate) struct MobSpawner {
     timer: Timer,
     max_count: usize,
     current_count: usize,
-    max_kill: usize,
-    current_kill: usize,
+    pub(crate) max_kill: usize,
+    pub(crate) current_kill: usize,
     spawner_id: SpawnId,
 }
 
@@ -122,12 +162,17 @@ impl Enemies {
             mob_type: *self,
             spwawner_id: id,
             health: 1,
-            move_timer: Timer::from_seconds(0.5, TimerMode::Once),
+            next_position: None,
+            move_speed: 30.0 + (map_level as f32 * 0.03).min(190.0),
+            experience: 1,
+            bricks: 1,
+            status_effects: HashMap::new(),
         };
 
         match self {
             Enemies::Block => {
-                base.health = 3 * (map_level as usize);
+                base.health = 3 * (map_level.pow(2) as usize);
+                base.experience += map_level as usize / 3;
             }
         }
 

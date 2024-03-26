@@ -1,0 +1,45 @@
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    body {
+      background: linear-gradient(135deg,
+          white 0%,
+          white 49%,
+          black 49%,
+          black 51%,
+          white 51%,
+          white 100%) repeat;
+      background-size: 20px 20px;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      background-color: white;
+    }
+  </style>
+  <title>Rusty-Apple</title>
+</head>
+<script type="module">
+  import init from './rusty-apple.js'
+
+  // Save the original console functions
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalWarn = console.warn;
+
+  // Override console functions
+  console.log = console.error = console.warn = function () { };
+
+  // Initialize wasm
+  init().then(() => {
+    // Restore the original console functions
+    console.log = originalLog;
+    console.error = originalError;
+    console.warn = originalWarn;
+  });
+</script>
+
+</html>

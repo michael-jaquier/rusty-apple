@@ -3,7 +3,9 @@ use std::collections::HashSet;
 
 use crate::prelude::*;
 
-use self::weapon::{despawn_project_system, weapon_fire_system, ProjectileData, WeaponTypes};
+use self::weapon::{
+    despawn_project_system, despawn_timer_system, weapon_fire_system, ProjectileData, WeaponTypes,
+};
 pub(crate) mod weapon;
 
 /// This system will despawn the laser when the timer runs out
@@ -21,7 +23,7 @@ pub(crate) struct FireWeaponEvent {
     pub velocity: LinearVelocity,
 }
 
-#[derive(Debug, Default, Resource)]
+#[derive(Debug, Default, Resource, Deref)]
 pub(crate) struct ScheduledForDespawnProjectile(HashSet<Entity>);
 impl ScheduledForDespawnProjectile {
     pub(crate) fn insert(&mut self, entity: Entity) {
@@ -56,6 +58,7 @@ impl Plugin for WeaponPlugin {
             .insert_resource(ScheduledForDespawnProjectile::default())
             .add_event::<WeaponUpgradeEvent>()
             .add_systems(Update, weapon_fire_system)
-            .add_systems(Update, despawn_project_system);
+            .add_systems(Update, despawn_project_system)
+            .add_systems(Update, despawn_timer_system);
     }
 }
