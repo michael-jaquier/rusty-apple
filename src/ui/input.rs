@@ -95,7 +95,7 @@ fn keyboard_action_system(
                 if let Some((_, _, pos)) = highlightedspot.0 {
                     for (tower, tower_pos) in tower_query.iter() {
                         if tower_pos.0 == pos {
-                            grid_click_events.send(GridClickEvent::UpgradeTower(tower.tower));
+                            grid_click_events.send(GridClickEvent::UpgradeTower(tower.tower, pos));
                         }
                     }
                 }

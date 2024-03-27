@@ -7,7 +7,9 @@ use crate::collision::GameLayer;
 use crate::mob::{EffectType, StatusEffect};
 use crate::towers::{TowerData, TowerInfo};
 use crate::{assets::SpriteAssets, prelude::*};
+use bevy::log::tracing_subscriber::fmt::format::Format;
 use enum_iterator::Sequence;
+use rand::Rng;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
@@ -170,18 +172,22 @@ impl From<WeaponTypes> for WeaponComponent {
             WeaponTypes::Laser => WeaponComponent {
                 projectile_data: ProjectileData::from(value),
                 reload_timer: Timer::from(value),
+                level: 1,
             },
             WeaponTypes::Fire => WeaponComponent {
                 projectile_data: ProjectileData::from(value),
                 reload_timer: Timer::from(value),
+                level: 1,
             },
             WeaponTypes::Ice => WeaponComponent {
                 projectile_data: ProjectileData::from(value),
                 reload_timer: Timer::from(value),
+                level: 1,
             },
             WeaponTypes::Rifle => WeaponComponent {
                 projectile_data: ProjectileData::from(value),
                 reload_timer: Timer::from(value),
+                level: 1,
             },
         }
     }
@@ -241,7 +247,6 @@ pub(crate) fn weapon_fire_system(
             RigidBody::Kinematic,
             colider,
             ExternalForce::ZERO,
-            Mass(2000.0),
             weapon.weapon_projectile_data,
             CollisionLayers::new(GameLayer::Projectile, [GameLayer::Enemy]),
             DespawnTimer(Timer::from_seconds(5.0, TimerMode::Once)),
@@ -259,6 +264,16 @@ pub(crate) struct ProjectileData {
     pub source_entity: Option<Entity>,
 }
 
+impl Display for ProjectileData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Proj Count: {:?}\nDamage: {}\n Speed: {}\n AoE: {}",
+            self.count, self.damage, self.speed_multiplier, self.area_of_effect
+        )
+    }
+}
+
 impl ProjectileData {
     pub(crate) fn status_effect(&self, tower: &TowerData) -> StatusEffect {
         let (potency, duration) = (tower.get_status().potency, tower.get_status().duration);
@@ -274,6 +289,7 @@ impl ProjectileData {
 pub(crate) struct WeaponComponent {
     pub projectile_data: ProjectileData,
     pub reload_timer: Timer,
+    pub level: u32,
 }
 
 impl Hash for WeaponComponent {
@@ -297,12 +313,50 @@ impl WeaponComponent {
     }
 
     pub(crate) fn level_up(&mut self) {
-        match self.projectile_data.weapon_type {
-            WeaponTypes::Laser => self.projectile_data.damage += 2,
-            WeaponTypes::Fire => self.projectile_data.damage += 2,
-            WeaponTypes::Ice => self.projectile_data.damage += 1,
-            WeaponTypes::Rifle => self.projectile_data.damage += 7,
+        let (min, max, flat) = match self.projectile_data.weapon_type {
+            WeaponTypes::Laser => (0.01, 0.10, 15),
+            WeaponTypes::Fire => (0.01, 0.10, 20),
+            WeaponTypes::Ice => (0.01, 0.03, 10),
+            WeaponTypes::Rifle => (0.01, 0.23, 45),
+        };
+
+        let mut dmg_rng = rand::thread_rng();
+
+        let dmg_boost = (self.projectile_data.damage as f32 * dmg_rng.gen_range(min..max))
+            + dmg_rng.gen_range(0..flat) as f32;
+        self.projectile_data.damage = (self.projectile_data.damage as f32 + dmg_boost) as usize;
+
+        if self.level % 5 == 0 {
+            self.projectile_data.speed_multiplier =
+                (self.projectile_data.speed_multiplier + 50.).min(2000.0);
         }
+
+        if self.level % 25 == 0 {
+            self.projectile_data.count = self.projectile_data.count + 1;
+        }
+
+        if self.level % 10 == 0 {
+            self.reload_timer = Timer::from_seconds(
+                (self.reload_timer.duration().as_secs_f32() * 0.9).max(0.4),
+                TimerMode::Once,
+            );
+        }
+
+        if self.level > 100000 {
+            self.projectile_data.area_of_effect = true;
+        }
+
+        self.level += 1;
+    }
+
+    pub(crate) fn cost(&self) -> u32 {
+        let base = match self.projectile_data.weapon_type {
+            WeaponTypes::Laser => 10,
+            WeaponTypes::Fire => 15,
+            WeaponTypes::Ice => 20,
+            WeaponTypes::Rifle => 25,
+        };
+        base * self.level
     }
 
     pub(crate) fn weapon_type(&self) -> WeaponTypes {

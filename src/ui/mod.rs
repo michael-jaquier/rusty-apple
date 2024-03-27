@@ -25,9 +25,11 @@ use bevy_ecs_tilemap::prelude::*;
 
 /// Input Plugin
 pub use input::InputPlugin;
+pub use stats::StatsPlugin;
 
 pub(crate) mod input;
 pub(crate) mod level;
+pub(crate) mod stats;
 
 /// Ui Plugin
 pub struct UiPlugin;

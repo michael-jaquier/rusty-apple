@@ -41,6 +41,7 @@ fn main() {
         .add_plugins(collision::CollisionPlugin)
         .add_plugins(ui::InputPlugin)
         .add_plugins(player::PlayerPlugin)
+        .add_plugins(ui::StatsPlugin)
         .add_systems(Startup, setup_camera)
         .run();
 }

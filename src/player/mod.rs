@@ -27,6 +27,17 @@ impl Default for Player {
     }
 }
 
+impl Player {
+    pub(crate) fn remove_bricks(&mut self, amount: u32) -> bool {
+        if amount > self.bricks {
+            false
+        } else {
+            self.bricks = self.bricks.saturating_sub(amount);
+            true
+        }
+    }
+}
+
 #[derive(Debug, Clone, Event)]
 pub(crate) enum PlayerUpdateEvent {
     Damage(u32),
@@ -50,7 +61,11 @@ fn update(mut player_update_event: EventReader<PlayerUpdateEvent>, mut player: Q
                 if player.bricks >= *bricks {
                     player.bricks = player.bricks.saturating_sub(*bricks);
                 } else {
-                    warn!("Not enough bricks to build this should not happen!");
+                    warn!(
+                        "Not enough bricks to build this should not happen!
+                    Cost {} Bricks, Player has {} Bricks",
+                        bricks, player.bricks
+                    );
                 }
             }
         }

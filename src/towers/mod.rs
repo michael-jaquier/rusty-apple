@@ -1,13 +1,11 @@
 //! Towers module.
 
-use bevy::sprite::MaterialMesh2dBundle;
-use bevy::sprite::Mesh2dHandle;
+use bevy::utils::info;
 use bevy_ecs_tilemap::tiles::TilePos;
-use bevy_egui::egui::Pos2;
-use bevy_egui::egui::Shape;
-use bevy_egui::egui::Stroke;
 use enum_iterator::all;
 use enum_iterator::Sequence;
+use rand::thread_rng;
+use rand::Rng;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -18,6 +16,7 @@ use crate::arena::grid::GridResource;
 use crate::arena::grid::HighlightedSpot;
 use crate::arena::path_finding;
 use crate::arena::GRID_SQUARE_SIZE;
+use crate::collision::CollisionTypes;
 use crate::collision::GameLayer;
 use crate::mob::EnemyUnit;
 use crate::player::Player;
@@ -32,7 +31,36 @@ use crate::{arena::grid::GridClickEvent, assets::SpriteAssets, prelude::*};
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum TowerLevelUpReason {
     Kill,
-    Upgrade,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Copy)]
+pub(crate) struct TowerDamage(u128);
+
+impl TowerDamage {
+    pub(crate) fn damage(&self) -> u128 {
+        self.0
+    }
+
+    pub(crate) fn add_damage<T>(&mut self, damage: T)
+    where
+        T: Into<u128>,
+    {
+        self.0 += damage.into();
+    }
+}
+
+impl Display for TowerDamage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.0 > 1_000_000_000 {
+            write!(f, "{}G", self.0 / 1_000_000_000)
+        } else if self.0 > 1_000_000 {
+            write!(f, "{}M", self.0 / 1_000_000)
+        } else if self.0 > 1_000 {
+            write!(f, "{}K", self.0 / 1_000)
+        } else {
+            write!(f, "{}", self.0)
+        }
+    }
 }
 
 #[derive(Debug, Component, Clone, PartialEq, Eq, Default, Copy)]
@@ -49,6 +77,7 @@ pub(crate) struct TowerData {
     current_cost: u32,
     tower_count: u32,
     tower_type: TowerTypes,
+    damage_done: TowerDamage,
 }
 
 impl TowerData {
@@ -60,6 +89,7 @@ impl TowerData {
             current_cost: 1,
             tower_count: 0,
             tower_type: *tower_type,
+            damage_done: TowerDamage::default(),
         }
     }
 
@@ -99,6 +129,14 @@ impl TowerData {
         let experience_needed = self.level * 333;
         self.add_experience(experience_needed);
     }
+
+    pub(crate) fn add_damage(&mut self, damage: u32) {
+        self.damage_done.add_damage(damage);
+    }
+
+    pub(crate) fn get_damage(&self) -> TowerDamage {
+        self.damage_done
+    }
 }
 
 #[derive(Debug, Resource)]
@@ -132,8 +170,7 @@ impl TowerInfo {
 
     pub(crate) fn upgrade(&mut self, tower: &TowerTypes) {
         if let Some(data) = self.tower_data.get_mut(tower) {
-            data.level += 1;
-            data.mutate_status();
+            data.upgrade();
         }
     }
 
@@ -170,7 +207,19 @@ impl TowerInfo {
     pub(crate) fn mega_fire(&self, tower: &TowerTypes, projectile_data: &mut ProjectileData) {
         let level = self.get_level(tower);
         projectile_data.damage += level as usize;
-        projectile_data.count += (level / 11) as usize;
+    }
+
+    pub(crate) fn add_damage(&mut self, tower: &TowerTypes, damage: u32) {
+        if let Some(data) = self.tower_data.get_mut(tower) {
+            data.add_damage(damage);
+        }
+    }
+
+    pub(crate) fn get_damage(&self, tower: &TowerTypes) -> TowerDamage {
+        self.tower_data
+            .get(tower)
+            .map(|data| data.get_damage())
+            .unwrap_or_default()
     }
 }
 
@@ -206,6 +255,7 @@ impl Plugin for TowerPlugin {
             .insert_resource(TowerInfo::default())
             .add_systems(Update, tower_fire_system)
             .add_systems(Update, tower_level_up_system)
+            .add_systems(Update, update_tower_dps)
             .add_systems(Update, tower_upgrade_system);
     }
 }
@@ -215,21 +265,18 @@ pub(crate) struct TowerPosition(pub(crate) TilePos);
 
 fn tower_upgrade_system(
     mut grid_event: EventReader<GridClickEvent>,
-    mut tower_level_up_event: EventWriter<TowerLevelUp>,
-    mut player_event: EventWriter<PlayerUpdateEvent>,
-    tower_info: ResMut<TowerInfo>,
-    player: Query<&Player>,
+    mut tower_query: Query<(&TowerComponents, &mut WeaponComponent)>,
+    mut player: Query<&mut Player>,
 ) {
     for event in grid_event.read() {
         match event {
-            GridClickEvent::UpgradeTower(tower_type) => {
-                if let Some(bricks) = tower_info.enough_bricks(tower_type, &player.single()) {
-                    tower_level_up_event.send(TowerLevelUp {
-                        entity: Entity::PLACEHOLDER,
-                        reason: TowerLevelUpReason::Upgrade,
-                        enemy_experience: 0,
-                    });
-                    player_event.send(PlayerUpdateEvent::Build(bricks));
+            GridClickEvent::UpgradeTower(tower_type, _tile_pos) => {
+                for (tc, mut wc) in tower_query.iter_mut() {
+                    if &tc.tower == tower_type {
+                        if player.single_mut().remove_bricks(wc.cost()) {
+                            wc.level_up();
+                        }
+                    }
                 }
             }
 
@@ -311,7 +358,6 @@ fn tower_system(
 
 fn draw_tower_range_system(
     tower_query: Query<(
-        Entity,
         &TowerComponents,
         &WeaponComponent,
         &Transform,
@@ -322,8 +368,8 @@ fn draw_tower_range_system(
     mut my_gizmos: Gizmos<TowerGizmos>,
     highlighted_spot: Res<HighlightedSpot>,
 ) {
-    if let Some((_, transform, tile_pos)) = highlighted_spot.0 {
-        for (entity, tower, weapon, transform, tower_position) in tower_query.iter() {
+    if let Some((_, _, tile_pos)) = highlighted_spot.0 {
+        for (tower, weapon, transform, tower_position) in tower_query.iter() {
             if tower_position.0 != tile_pos {
                 continue;
             }
@@ -335,6 +381,33 @@ fn draw_tower_range_system(
             my_gizmos
                 .circle_2d(tower_position.truncate(), range, Color::NAVY)
                 .segments(64);
+        }
+    }
+}
+
+fn update_tower_dps(
+    mut tower_info: ResMut<TowerInfo>,
+    mut collision_event_reader: EventReader<CollisionTypes>,
+    tower_query: Query<(Entity, &TowerComponents, &TowerPosition)>,
+) {
+    for event in collision_event_reader.read() {
+        match event {
+            CollisionTypes::ProjectileToEnemy {
+                projectile_data,
+                tile,
+                projectile_entity,
+                ..
+            } => {
+                for (entity, tower, tower_pos) in tower_query.iter() {
+                    if entity
+                        == projectile_data
+                            .source_entity
+                            .unwrap_or_else(|| Entity::PLACEHOLDER)
+                    {
+                        tower_info.add_damage(&tower.tower, projectile_data.damage as u32);
+                    }
+                }
+            }
         }
     }
 }
@@ -366,6 +439,9 @@ fn tower_fire_system(
                     .range(&grid, tower_info.get_level(&tower.tower));
 
                 for (entity, enemy_transform) in enemies_position.iter() {
+                    if enemies_to_target.len() == projectile_data.count {
+                        break;
+                    }
                     if enemies_targeted.contains(&entity) {
                         continue;
                     }
@@ -404,7 +480,6 @@ fn tower_level_up_system(
     mut tower_query: Query<(Entity, &mut TowerComponents, &mut WeaponComponent)>,
     mut tower_datum: ResMut<TowerInfo>,
 ) {
-    let mut tower_levels = None;
     for event in tower_level_up_event.read() {
         match event {
             TowerLevelUp {
@@ -412,35 +487,11 @@ fn tower_level_up_system(
                 reason: TowerLevelUpReason::Kill,
                 enemy_experience,
             } => {
-                let mut tower = None;
-                if let Some((entity, tc, wc)) = tower_query.get(event.entity).ok() {
-                    tower = Some(tc.tower);
-                }
-
-                if let Some(tower) = tower {
-                    let level = tower_datum.add_experience(&tower, *enemy_experience as u32);
-                    tower_levels = Some((tower, level));
-                }
-            }
-            TowerLevelUp {
-                entity,
-                reason: TowerLevelUpReason::Upgrade,
-                enemy_experience,
-            } => {
-                if let Some((entity, tc, wc)) = tower_query.get(event.entity).ok() {
-                    tower_datum.upgrade(&tc.tower);
-                    let tower_type = tc.tower;
-                    tower_levels = Some((tower_type, 1));
-                }
-            }
-        }
-    }
-
-    if let Some((tower, times)) = tower_levels {
-        for (entity, mut tc, mut wc) in tower_query.iter_mut() {
-            for _ in 0..times {
-                if tc.tower == tower {
-                    wc.level_up();
+                if let Some((entity, tc, mut wc)) = tower_query.get_mut(event.entity).ok() {
+                    tower_datum.add_experience(&tc.tower, *enemy_experience as u32);
+                    if thread_rng().gen_bool(1.0 / 5_0000.0) {
+                        wc.level_up();
+                    }
                 }
             }
         }

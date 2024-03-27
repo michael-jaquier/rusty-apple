@@ -174,7 +174,7 @@ impl GridResource {
 #[derive(Debug, Event)]
 pub(crate) enum GridClickEvent {
     Highlight(Entity, Transform, TilePos),
-    UpgradeTower(TowerTypes),
+    UpgradeTower(TowerTypes, TilePos),
     BuildTower(TowerTypes, Transform, TilePos),
     RemoveTower(TowerTypes, TilePos),
     DeHighlight(Transform, TilePos),

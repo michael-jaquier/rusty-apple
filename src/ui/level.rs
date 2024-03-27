@@ -1,6 +1,5 @@
 //! Map level
 
-use bevy::log::tracing_subscriber::fmt::format;
 use bevy_egui::{egui, EguiContexts};
 
 use crate::{
