@@ -1,28 +1,96 @@
 //! Mobs
 
-use std::sync::atomic::AtomicUsize;
+use std::{collections::HashMap, hash::Hash, sync::atomic::AtomicUsize};
 
-use bevy::{asset, transform::commands, utils::tracing::Instrument};
-use bevy_xpbd_2d::parry::na::coordinates::X;
-use enum_iterator::all;
-use rand::Rng;
+use enum_iterator::Sequence;
 
-use crate::{
-    arena::{ARENA_HEIGHT, ARENA_WIDTH},
-    assets::SpriteAssets,
-    player::PlayerComponent,
-    prelude::*,
-};
+use crate::{assets::SpriteAssets, prelude::*};
 
 static SPAWNER_ID: AtomicUsize = AtomicUsize::new(0);
 
-use self::enemy::{EnemyComponent, EnemyUnit};
-
 pub(crate) mod enemy;
+pub use enemy::MobPlugin;
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Sequence)]
+pub(crate) enum Enemies {
+    Block,
+}
+
+impl Enemies {
+    pub(crate) fn damage(&self, map_level: u32) -> u32 {
+        match self {
+            Enemies::Block => (1 + map_level).min(20),
+        }
+    }
+}
+
+fn block_enemy_sprite() -> Sprite {
+    Sprite {
+        color: Color::CRIMSON,
+        custom_size: Some(Vec2::new(16.0, 16.0)),
+        ..Default::default()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct StatusEffect {
+    pub(crate) effect_type: EffectType,
+    pub(crate) timer: Timer,
+    pub(crate) potency: u32,
+}
+
+impl Hash for StatusEffect {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.effect_type.hash(state);
+    }
+}
+
+impl PartialEq for StatusEffect {
+    fn eq(&self, other: &Self) -> bool {
+        self.effect_type == other.effect_type
+    }
+}
+
+impl Eq for StatusEffect {}
+
+#[derive(Debug, Clone, PartialEq, Hash, Eq, Copy)]
+pub(crate) enum EffectType {
+    None,
+    Slow,
+    // add other effect types here
+}
+
+/// The enemy component.
+#[derive(Component, Debug)]
+pub(crate) struct EnemyComponent {
+    pub(crate) mob_type: Enemies,
+    pub(crate) spawner: MobSpawner,
+}
+
+#[derive(Debug, Component, Clone)]
+pub(crate) struct EnemyUnit {
+    pub(crate) mob_type: Enemies,
+    pub(crate) spwawner_id: SpawnId,
+    pub(crate) health: usize,
+    pub(crate) next_position: Option<Vec3>,
+    pub(crate) move_speed: f32,
+    pub(crate) experience: usize,
+    pub(crate) bricks: usize,
+    pub(crate) status_effects: HashMap<EffectType, StatusEffect>,
+}
+
+impl EnemyUnit {
+    pub(crate) fn insert_status(&mut self, effect: StatusEffect) {
+        if effect.effect_type == EffectType::None {
+            return;
+        }
+        self.status_effects.insert(effect.effect_type, effect);
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct MobSpawnerData {
-    pub(crate) mob_type: enemy::Enemies,
+    pub(crate) mob_type: Enemies,
     pub(crate) spawn_position: Position,
     pub(crate) period: f32,
     pub(crate) max_count: usize,
@@ -30,11 +98,13 @@ pub(crate) struct MobSpawnerData {
 
 #[derive(Debug)]
 pub(crate) struct MobSpawner {
-    mob_type: enemy::Enemies,
+    mob_type: Enemies,
     spawn_position: Position,
     timer: Timer,
     max_count: usize,
     current_count: usize,
+    pub(crate) max_kill: usize,
+    pub(crate) current_kill: usize,
     spawner_id: SpawnId,
 }
 
@@ -46,6 +116,8 @@ impl From<MobSpawnerData> for MobSpawner {
             timer: Timer::from_seconds(data.period, TimerMode::Repeating),
             max_count: data.max_count,
             current_count: 0,
+            max_kill: 0,
+            current_kill: 0,
             spawner_id: SpawnId::new(),
         }
     }
@@ -62,154 +134,56 @@ impl SpawnId {
             id: SPAWNER_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
     }
-
-    pub(crate) fn id(&self) -> usize {
-        self.id
-    }
-
-    pub(crate) fn is(&self, other: &SpawnId) -> bool {
-        self.id == other.id
-    }
 }
 
 #[derive(Debug, Event)]
 pub(crate) struct MobSpawnEvent {
-    pub(crate) mob_type: enemy::Enemies,
+    pub(crate) mob_type: Enemies,
     pub(crate) position: Position,
     pub(crate) spawner_id: SpawnId,
+    pub(crate) map_level: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum EnemyDespawnReason {
+    Killed,
+    ReachedEnd,
+}
 #[derive(Debug, Event)]
 pub(crate) struct MobDespawnEvent {
     pub(crate) enemy_entity: Entity,
     pub(crate) spawner_id: SpawnId,
+    pub(crate) reason: EnemyDespawnReason,
 }
 
-/// The mob plugin.
-pub struct MobPlugin;
+impl Enemies {
+    pub(crate) fn into_unit(&self, id: SpawnId, map_level: u32) -> EnemyUnit {
+        let mut base = EnemyUnit {
+            mob_type: *self,
+            spwawner_id: id,
+            health: 1,
+            next_position: None,
+            move_speed: 30.0 + (map_level as f32 * 0.03).min(190.0),
+            experience: 1,
+            bricks: 1,
+            status_effects: HashMap::new(),
+        };
 
-impl Plugin for MobPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_event::<MobSpawnEvent>()
-            .add_event::<MobDespawnEvent>()
-            .add_systems(PostStartup, deploy_mod_spawners)
-            .add_systems(Update, spawn_enemy)
-            .add_systems(Update, mob_spawn_system)
-            .add_systems(Update, (trigger_despawn_event, mob_despawn_system).chain());
-    }
-}
-
-fn mob_spawn_system(
-    mut event: EventWriter<MobSpawnEvent>,
-    player_query: Query<&Transform, With<PlayerComponent>>,
-    mut mob_query: Query<&mut EnemyComponent>,
-    time: Res<Time>,
-) {
-    for (mut enemy) in mob_query.iter_mut() {
-        if enemy.spawner.timer.tick(time.delta()).just_finished()
-            && enemy.spawner.current_count < enemy.spawner.max_count
-        {
-            let p = player_query.get_single();
-            if p.is_ok() {
-                let player_position = p.unwrap().translation.truncate();
-                // Spawn enemy a minimum of 200 pixels away from the player
-                // But ensure it remains in the Arena
-
-                let x_rng = (player_position.x + rand::thread_rng().gen_range(774..776) as f32)
-                    % ARENA_WIDTH as f32;
-                let y_rng = (player_position.y + rand::thread_rng().gen_range(0..3) as f32)
-                    % ARENA_WIDTH as f32;
-                let position = Position::from_xy(x_rng, y_rng);
-                event.send(MobSpawnEvent {
-                    mob_type: enemy.mob_type,
-                    position: position,
-                    spawner_id: enemy.spawner.spawner_id,
-                });
-            } else {
-                event.send(MobSpawnEvent {
-                    mob_type: enemy.mob_type,
-                    position: enemy.spawner.spawn_position,
-                    spawner_id: enemy.spawner.spawner_id,
-                });
-            }
-
-            enemy.spawner.current_count += 1;
-        }
-    }
-}
-
-fn deploy_mod_spawners(mut commands: Commands) {
-    for enemy in all::<enemy::Enemies>() {
-        let enemy: enemy::EnemyComponent = enemy.into();
-        let mut entity = commands.spawn_empty();
-        entity.insert(enemy);
-    }
-}
-
-fn spawn_enemy(
-    mut commands: Commands,
-    assets: Res<SpriteAssets>,
-    mut event: EventReader<MobSpawnEvent>,
-) {
-    for mob_spawn_event in event.read() {
-        let sprite = assets.enemy_sprites[&mob_spawn_event.mob_type].clone();
-
-        commands.spawn((
-            SpriteBundle {
-                sprite,
-                transform: Transform {
-                    translation: Vec3::Z * 1.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            mob_spawn_event.position,
-            Collider::rectangle(50.0, 50.0),
-            RigidBody::Kinematic,
-            ExternalForce::ZERO,
-            LinearVelocity::ZERO,
-            AngularVelocity(0.0),
-            mob_spawn_event
-                .mob_type
-                .into_unit(mob_spawn_event.spawner_id),
-        ));
-    }
-}
-
-fn mob_despawn_system(
-    mut commands: Commands,
-    mut event: EventReader<MobDespawnEvent>,
-    mut query: Query<&mut EnemyComponent>,
-) {
-    for (mob_despawn_event, id) in event.read_with_id() {
-        let maybe_entity = commands.get_entity(mob_despawn_event.enemy_entity);
-        if let Some(mut entity) = maybe_entity {
-            // get the enemy component that matches our id
-            for mut enemy in query.iter_mut() {
-                if enemy.spawner.spawner_id == mob_despawn_event.spawner_id {
-                    enemy.spawner.current_count = enemy.spawner.current_count.saturating_sub(1);
-                }
-            }
-            
-            entity.despawn()
-        }
-    }
-}
-
-fn trigger_despawn_event(
-    mut event: EventWriter<MobDespawnEvent>,
-    query: Query<(Entity, &EnemyUnit, &Position)>,
-) {
-    // Count the number of enemies in the arena
-    let count = query.iter().count();
-    if count > 0 {
-        for (entity, enemy, position) in query.iter() {
-            if position.x.abs() > ARENA_WIDTH as f32 || position.y.abs() > ARENA_HEIGHT as f32 {
-                event.send(MobDespawnEvent {
-                    enemy_entity: entity,
-                    spawner_id: enemy.spwawner_id,
-                });
+        match self {
+            Enemies::Block => {
+                base.health = 3 * (map_level.pow(2) as usize);
+                base.experience += map_level as usize / 3;
             }
         }
+
+        base
+    }
+}
+
+impl Enemies {
+    pub(crate) fn set(assets: &mut SpriteAssets) {
+        assets
+            .enemy_sprites
+            .insert(Enemies::Block, block_enemy_sprite());
     }
 }
