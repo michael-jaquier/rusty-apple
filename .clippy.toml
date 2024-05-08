@@ -1,0 +1,4 @@
+    "key": "space e",
+    "command": "workbench.action.tasks.runTask",
+    "args": "cargo run",
+    "when": "editorTextFocus"

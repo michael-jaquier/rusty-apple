@@ -1,22 +1,36 @@
-// Bevy code commonly triggers these lints and they may be important signals
-// about code quality. They are sometimes hard to avoid though, and the CI
-// workflow treats them as errors, so this allows them throughout the project.
-// Feel free to delete this line.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
-
-use bevy::prelude::*;
+use bevy::{prelude::*, window::WindowResolution};
+use bevy_egui::EguiPlugin;
+use bevy_xpbd_2d::prelude::PhysicsPlugins;
+use rusty_apple::{
+    arena::{ARENA_HEIGHT, ARENA_WIDTH},
+    assets, mob, player, ui, weapon,
+};
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
-        .add_systems(Startup, setup)
+        .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
+        .add_plugins(PhysicsPlugins::default())
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Rusty-Apple".to_string(),
+                resolution: WindowResolution::new(ARENA_WIDTH, ARENA_HEIGHT),
+                ..default()
+            }),
+            ..default()
+        }))
+        .add_plugins(EguiPlugin)
+        .add_systems(Update, bevy::window::close_on_esc)
+        .add_plugins(assets::AssetsPlugin)
+        .add_plugins(player::PlayerPlugin)
+        .add_plugins(weapon::WeaponPlugin)
+        .add_plugins(mob::MobPlugin)
+        .add_plugins(rusty_apple::collision::CollisionPlugin)
+        .add_plugins(ui::UiPlugin)
+        .add_systems(Startup, setup_camera)
         .run();
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+pub fn setup_camera(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
-    commands.spawn(SpriteBundle {
-        texture: asset_server.load("ducky.png"),
-        ..Default::default()
-    });
 }
